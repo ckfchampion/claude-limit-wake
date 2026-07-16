@@ -43,6 +43,14 @@ while IFS= read -r T; do
     '{session_id:$s, transcript_path:$t, cwd:$c}' | "$DETECTOR" >/dev/null 2>&1
 done
 
+# -- scan: Codex rollout logs written in the last 3 min (structured
+#    rate_limits state; see codex-limit-wake.sh — banner-at-reset in v1) --
+DETECTOR_CODEX="$HOME/.claude/scripts/codex-limit-wake.sh"
+if [ -x "$DETECTOR_CODEX" ] && [ -d "$HOME/.codex/sessions" ]; then
+  /usr/bin/find "$HOME/.codex/sessions" -name '*.jsonl' -mmin -3 2>/dev/null |
+  while IFS= read -r R; do "$DETECTOR_CODEX" "$R" >/dev/null 2>&1; done
+fi
+
 # -- fire due wakes --
 for FILE in "$SPOOL"/*.json; do
   [ -f "$FILE" ] || continue
