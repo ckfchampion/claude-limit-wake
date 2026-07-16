@@ -68,8 +68,30 @@ for FILE in "$SPOOL"/*.json; do
     echo "$((NOW + COOLDOWN_SECS))" > "$CD"
     notify "Claude limit-wake" "Typed \"continue\" into session $SHORT8 ($TTY)"
   else
-    # tab gone / not mapped — tell Charlotte so she can resume it by hand
-    notify "Claude limit-wake — resume manually" "Limits reset for session $SHORT8, but its tab wasn't found. Go press continue."
+    RC=$?
+    # exit 4 = a claude owns the tty but no Terminal.app tab has it — likely a
+    # Knave-embedded terminal. Hand off: drop a fire-request file; Knave's
+    # watcher types the text and DELETES the file as its ack (2s poll → 6s wait).
+    FIRED=""
+    if [ "$RC" = "4" ]; then
+      FIREDIR="$HOME/.knave/limit-wake-fire"
+      mkdir -p "$FIREDIR"
+      REQ="$FIREDIR/${TTY#/dev/}.json"
+      /usr/bin/jq -n --arg s "$SESSION" --arg t "$TTY" --arg x "continue" --argjson ts "$NOW" \
+        '{session:$s, tty:$t, text:$x, ts:$ts}' > "$REQ"
+      for _ in 1 2 3 4 5 6; do
+        sleep 1
+        [ -f "$REQ" ] || { FIRED=1; break; }
+      done
+      [ -n "$FIRED" ] || rm -f "$REQ"   # nobody consumed it — withdraw the request
+    fi
+    if [ -n "$FIRED" ]; then
+      echo "$((NOW + COOLDOWN_SECS))" > "$CD"
+      notify "Claude limit-wake" "Typed \"continue\" into Knave session $SHORT8 ($TTY)"
+    else
+      # tab gone / not mapped / handoff unconsumed — resume by hand
+      notify "Claude limit-wake — resume manually" "Limits reset for session $SHORT8, but its tab wasn't found. Go press continue."
+    fi
   fi
 done
 
