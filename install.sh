@@ -53,10 +53,10 @@ if "$NBIN" -help >/dev/null 2>&1; then
   echo "   until you verify the icon path by eye:"
   echo "     ~/.claude/scripts/claude-notify.sh --test-icon   (then --trust-icon)"
 else
-  echo "   *** WARNING: no working notifier binary on this Mac — banners will"
-  echo "   *** fall back to osascript (generic icon; grant Notifications"
-  echo "   *** permission to Script Editor). For Claude-icon banners:"
-  echo "   ***   brew install terminal-notifier && ./install.sh"
+  echo "   *** NOTE: no runnable icon-notifier binary on this Mac — that's fine;"
+  echo "   *** banners use osascript regardless until the icon path is verified."
+  echo "   *** To make the icon path available: brew install terminal-notifier,"
+  echo "   *** re-run ./install.sh, then claude-notify.sh --test-icon / --trust-icon."
 fi
 
 echo "== LaunchAgent -> $AGENTS/$LABEL.plist"

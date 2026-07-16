@@ -18,7 +18,7 @@ Claude Code session hits a rate limit
         │  transcripts for the CLI's own rate_limit error entries
         ▼
 limit-wake.sh parses "resets 3pm" → queues a wake file in ~/.claude/limit-wakes/
-        + banner: "Limit hit — auto-wake queued for 15:02"        ← Claude icon
+        + banner: "Limit hit — auto-wake queued for 15:02"
         ▼
 limit-wake-runner.sh (LaunchAgent, every 60s) sees a due wake
         ▼
@@ -41,9 +41,14 @@ Hard-won details baked in (don't re-learn these):
   fast path.
 - **Injection guard** — `claude-inject.sh` refuses to type into a tty unless a
   `claude` process currently owns it (tabs get recycled).
-- **Notifications post from ClaudeNotify.app** — a re-iconed terminal-notifier;
-  `-sender`/`-appIcon` flags are silently ignored on current macOS, so the
-  banner carries the icon of the app that posts it.
+- **Banners default to osascript** (they post as "Script Editor", generic
+  icon) because that path provably delivers. The prettier ClaudeNotify.app
+  (re-iconed terminal-notifier — a banner carries the icon of the app that
+  posts it; `-sender`/`-appIcon` are silently ignored) uses a deprecated
+  API that never registers with Notification Center on macOS 26, so it only
+  activates after a human verifies it by eye: `claude-notify.sh --test-icon`,
+  then `--trust-icon` if the banner appeared. Never trust a probe that can't
+  see the screen.
 
 ## Install
 
@@ -58,7 +63,9 @@ manually" banner, just not the typed `continue`).
 
 Two one-time permission grants on a fresh machine (the installer reminds you):
 
-1. **Notifications** — allow ClaudeNotify in System Settings > Notifications.
+1. **Notifications** — allow **Script Editor** in System Settings >
+   Notifications (osascript banners post as it). Style "Alerts" makes them
+   stay on screen until dismissed instead of vanishing after a few seconds.
 2. **Automation** — approve the "wants to control Terminal" prompt on first fire.
 
 Re-running `install.sh` updates scripts in place; the settings.json hook merge

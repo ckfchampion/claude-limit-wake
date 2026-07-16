@@ -10,9 +10,9 @@
 # runner's per-minute transcript scan is the path that reliably catches a hit.
 
 set -u
-notify() {  # title, message — route through claude-notify.sh (ClaudeNotify.app
-  # posts it, so the banner carries the Claude icon; -sender is ignored on this
-  # macOS, which is why the old inline terminal-notifier call never showed).
+notify() {  # title, message — route through claude-notify.sh: osascript banner
+  # by default (proven to deliver); the Claude-icon app is used only once a
+  # human has verified it on screen (see claude-notify.sh --test-icon).
   N="$HOME/.claude/scripts/claude-notify.sh"
   if [ -x "$N" ]; then
     ( "$N" "$1" "$2" >/dev/null 2>&1 & )
