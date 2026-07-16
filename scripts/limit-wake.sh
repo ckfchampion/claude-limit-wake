@@ -17,7 +17,9 @@ notify() {  # title, message — route through claude-notify.sh (ClaudeNotify.ap
   if [ -x "$N" ]; then
     ( "$N" "$1" "$2" >/dev/null 2>&1 & )
   else
-    /usr/bin/osascript -e "display notification \"$2\" with title \"$1\"" 2>/dev/null
+    # argv-passing form: a payload containing quotes must not become an
+    # AppleScript syntax error (the runner's own message quotes "continue").
+    /usr/bin/osascript -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' -e 'end run' "$1" "$2" 2>/dev/null
   fi
 }
 

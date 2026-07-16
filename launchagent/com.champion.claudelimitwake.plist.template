@@ -2,22 +2,21 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key>
-    <string>com.champion.claudelimitwake</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/bin/bash</string>
-        <string>__HOME__/.claude/scripts/limit-wake-runner.sh</string>
-    </array>
-    <key>StartInterval</key>
-    <integer>60</integer>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>__HOME__/.claude/limit-wake-agent.log</string>
-    <key>StandardErrorPath</key>
-    <string>__HOME__/.claude/limit-wake-agent.log</string>
-    <key>ProcessType</key>
-    <string>Background</string>
+	<key>Label</key>
+	<string>com.champion.claudelimitwake</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>__HOME__/.claude/scripts/ClaudeLimitWake</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>__HOME__/.claude/limit-wake-agent.log</string>
+	<key>StandardOutPath</key>
+	<string>__HOME__/.claude/limit-wake-agent.log</string>
+	<key>StartInterval</key>
+	<integer>60</integer>
 </dict>
 </plist>

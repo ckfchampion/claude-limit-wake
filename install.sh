@@ -24,7 +24,7 @@ LABEL="com.champion.claudelimitwake"
 
 echo "== scripts -> $SCRIPTS"
 mkdir -p "$SCRIPTS" "$HELPERS" "$AGENTS"
-install -m 0755 scripts/*.sh "$SCRIPTS/"
+install -m 0755 scripts/* "$SCRIPTS/"   # includes the ClaudeLimitWake wrapper (login-item display name)
 
 echo "== ClaudeNotify.app -> $HELPERS"
 rm -rf "$HELPERS/ClaudeNotify.app"
