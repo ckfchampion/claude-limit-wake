@@ -75,15 +75,20 @@ for FILE in "$SPOOL"/*.json; do
     FIRED=""
     if [ "$RC" = "4" ]; then
       FIREDIR="$HOME/.knave/limit-wake-fire"
-      mkdir -p "$FIREDIR"
       REQ="$FIREDIR/${TTY#/dev/}.json"
-      /usr/bin/jq -n --arg s "$SESSION" --arg t "$TTY" --arg x "continue" --argjson ts "$NOW" \
-        '{session:$s, tty:$t, text:$x, ts:$ts}' > "$REQ"
-      for _ in 1 2 3 4 5 6; do
-        sleep 1
-        [ -f "$REQ" ] || { FIRED=1; break; }
-      done
-      [ -n "$FIRED" ] || rm -f "$REQ"   # nobody consumed it — withdraw the request
+      # file-gone is the ack, so it only counts if creation provably succeeded —
+      # a failed write here must fall through to the manual banner, never read
+      # as "Knave consumed it".
+      if mkdir -p "$FIREDIR" 2>/dev/null \
+         && /usr/bin/jq -n --arg s "$SESSION" --arg t "$TTY" --arg x "continue" --argjson ts "$NOW" \
+              '{session:$s, tty:$t, text:$x, ts:$ts}' > "$REQ" 2>/dev/null \
+         && [ -s "$REQ" ]; then
+        for _ in 1 2 3 4 5 6; do
+          sleep 1
+          [ -f "$REQ" ] || { FIRED=1; break; }
+        done
+        [ -n "$FIRED" ] || rm -f "$REQ"   # nobody consumed it — withdraw the request
+      fi
     fi
     if [ -n "$FIRED" ]; then
       echo "$((NOW + COOLDOWN_SECS))" > "$CD"
