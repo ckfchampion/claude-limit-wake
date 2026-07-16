@@ -22,10 +22,21 @@ limit-wake.sh parses "resets 3pm" → queues a wake file in ~/.claude/limit-wake
         ▼
 limit-wake-runner.sh (LaunchAgent, every 60s) sees a due wake
         ▼
-claude-inject.sh types "continue" into the session's Terminal tab
-(tty recorded per-session by the SessionStart hook). Tab gone → banner
-telling you to resume by hand. 15-min cooldown stops re-fire loops.
+claude-inject.sh types "continue" into the session's Terminal.app tab
+(tty recorded per-session by the SessionStart hook). Not a Terminal.app
+tab but claude still owns the tty (a Knave-embedded terminal) → the runner
+drops a fire-request in ~/.knave/limit-wake-fire/ and the Knave app types
+"continue" into its own PTY, deleting the file as the ack. Nothing
+consumed it / tab gone → banner telling you to resume by hand. 15-min
+cooldown stops re-fire loops.
 ```
+
+Codex sessions: a second detector (`codex-limit-wake.sh`) reads the
+STRUCTURED rate-limit state Codex writes into its rollout logs
+(`payload.rate_limits.primary = {used_percent, resets_at}` — no text
+parsing) and queues a wake in the same spool. v1 fires a banner at reset
+(Codex sessions have no session→tty map yet); weekly-window exhaustion
+never arms.
 
 Hard-won details baked in (don't re-learn these):
 
@@ -73,18 +84,22 @@ is idempotent.
 
 ## Scope (honest)
 
-- Covers **Claude Code** sessions (scans `~/.claude/projects` transcripts).
-  **Codex is not covered** — a Codex limit-wake would need a separate detector
-  over `~/.codex` session logs.
-- Daily-style limits with a same/next-day reset time only; weekly limits
-  deliberately never arm.
+- **Claude Code** sessions (scans `~/.claude/projects` transcripts): full
+  auto-resume — typed `continue` in Terminal.app tabs and (with the Knave
+  desktop app ≥ the limit-wake build) in Knave-embedded terminals.
+- **Codex** sessions (scans `~/.codex/sessions` rollout logs): banner at
+  reset time only — no typed continue yet (needs a Codex session→tty
+  source; phase 2).
+- Daily/5h-window limits only; weekly-window limits deliberately never arm
+  (a days-out wake is worse than none).
 
 ## Files
 
 | File | Role |
 |---|---|
 | `scripts/limit-wake.sh` | detector: parses the 429 entry, queues the wake, posts the "wake queued" banner |
-| `scripts/limit-wake-runner.sh` | LaunchAgent body: 60s heartbeat, transcript scan, fires due wakes |
+| `scripts/limit-wake-runner.sh` | LaunchAgent body: 60s heartbeat, transcript + rollout scans, fires due wakes (Terminal.app inject → Knave handoff → manual banner) |
+| `scripts/codex-limit-wake.sh` | Codex detector: structured rate_limits from rollout logs → same spool |
 | `scripts/claude-inject.sh` | types text into the Terminal tab on a given tty (with claude-owns-tty guard) |
 | `scripts/claude-notify.sh` | banner helper — osascript (always delivers) by default; Claude-icon path activates only after human verification (`--test-icon`, then `--trust-icon` once you saw it) |
 | `scripts/ClaudeLimitWake` | argv[0] wrapper so the login item shows as "ClaudeLimitWake", not anonymous "bash" |
