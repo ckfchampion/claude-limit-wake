@@ -15,10 +15,12 @@ SHORT="${TTY#/dev/}"
 # recycled to some other program. (macOS `pgrep -t` is unreliable for pts, so
 # match the ps tty column directly.) INJECT_SKIP_GUARD=1 bypasses (test only).
 if [ "${INJECT_SKIP_GUARD:-0}" != "1" ]; then
-  # Match a `claude` process on this tty whether launched by full path
-  # (/…/bin/claude) or bare `claude` from PATH; never match `claude-inject` etc.
+  # Match a `claude` process on this tty: the EXECUTABLE token ($2, first word
+  # of the command column) must be claude — bare or by full path. Checking the
+  # whole line let `vim /tmp/claude` / `echo claude` through (Codex review
+  # finding, 2026-07-16); the same fix lives in Knave's limitwake guard.
   ps -o tty=,command= 2>/dev/null \
-    | awk -v t="$SHORT" '$1==t && /[ \/]claude([ ]|$)/ {f=1} END{exit !f}' || exit 3
+    | awk -v t="$SHORT" '$1==t && $2 ~ /(^|\/)claude$/ {f=1} END{exit !f}' || exit 3
 fi
 
 RESULT="$(/usr/bin/osascript - "$TTY" "$TEXT" <<'APPLESCRIPT'
