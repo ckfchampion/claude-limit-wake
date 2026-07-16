@@ -32,6 +32,31 @@ cp -R helpers/ClaudeNotify.app "$HELPERS/"
 xattr -dr com.apple.quarantine "$HELPERS/ClaudeNotify.app" 2>/dev/null || true
 codesign --force --deep -s - "$HELPERS/ClaudeNotify.app" 2>/dev/null || true
 
+# The bundled terminal-notifier is arch-specific (built arm64). Probe that it
+# actually runs on THIS Mac; if not, swap in the Mach-O from a locally
+# installed terminal-notifier (the `terminal-notifier` on PATH is a wrapper
+# script — the real binary lives inside its .app bundle; running it from
+# inside ClaudeNotify.app keeps the Claude icon). Never leave this silent.
+NBIN="$HELPERS/ClaudeNotify.app/Contents/MacOS/terminal-notifier"
+if ! "$NBIN" -help >/dev/null 2>&1; then
+  echo "   bundled notifier does not run on this Mac ($(uname -m)) — looking for a local one"
+  BREW_PREFIX="$(brew --prefix 2>/dev/null || true)"
+  LOCAL_BIN="$(ls "${BREW_PREFIX:-/opt/homebrew}"/Cellar/terminal-notifier/*/terminal-notifier.app/Contents/MacOS/terminal-notifier 2>/dev/null | head -1 || true)"
+  [ -n "$LOCAL_BIN" ] || LOCAL_BIN="$(ls /usr/local/Cellar/terminal-notifier/*/terminal-notifier.app/Contents/MacOS/terminal-notifier 2>/dev/null | head -1 || true)"
+  if [ -n "$LOCAL_BIN" ] && file -b "$LOCAL_BIN" | grep -q 'Mach-O'; then
+    cp "$LOCAL_BIN" "$NBIN"
+    codesign --force --deep -s - "$HELPERS/ClaudeNotify.app" 2>/dev/null || true
+  fi
+fi
+if "$NBIN" -help >/dev/null 2>&1; then
+  echo "   notifier OK — banners will carry the Claude icon"
+else
+  echo "   *** WARNING: no working notifier binary on this Mac — banners will"
+  echo "   *** fall back to osascript (generic icon; grant Notifications"
+  echo "   *** permission to Script Editor). For Claude-icon banners:"
+  echo "   ***   brew install terminal-notifier && ./install.sh"
+fi
+
 echo "== LaunchAgent -> $AGENTS/$LABEL.plist"
 sed "s|__HOME__|$HOME|g" "launchagent/$LABEL.plist.template" > "$AGENTS/$LABEL.plist"
 plutil -lint "$AGENTS/$LABEL.plist" >/dev/null
