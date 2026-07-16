@@ -79,7 +79,7 @@ is idempotent.
 | `scripts/limit-wake.sh` | detector: parses the 429 entry, queues the wake, posts the "wake queued" banner |
 | `scripts/limit-wake-runner.sh` | LaunchAgent body: 60s heartbeat, transcript scan, fires due wakes |
 | `scripts/claude-inject.sh` | types text into the Terminal tab on a given tty (with claude-owns-tty guard) |
-| `scripts/claude-notify.sh` | banner helper — osascript (always delivers) unless ClaudeNotify.app is registered+allowed in Notification Center, then Claude-icon banners |
+| `scripts/claude-notify.sh` | banner helper — osascript (always delivers) by default; Claude-icon path activates only after human verification (`--test-icon`, then `--trust-icon` once you saw it) |
 | `scripts/ClaudeLimitWake` | argv[0] wrapper so the login item shows as "ClaudeLimitWake", not anonymous "bash" |
 | `scripts/session-tty-hook.sh` | SessionStart hook: records session-id → tty mapping |
 | `helpers/ClaudeNotify.app` | re-iconed terminal-notifier (the icon carrier) |

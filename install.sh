@@ -49,7 +49,9 @@ if ! "$NBIN" -help >/dev/null 2>&1; then
   fi
 fi
 if "$NBIN" -help >/dev/null 2>&1; then
-  echo "   notifier OK — banners will carry the Claude icon"
+  echo "   icon notifier runs. Banners use osascript (generic icon, reliable)"
+  echo "   until you verify the icon path by eye:"
+  echo "     ~/.claude/scripts/claude-notify.sh --test-icon   (then --trust-icon)"
 else
   echo "   *** WARNING: no working notifier binary on this Mac — banners will"
   echo "   *** fall back to osascript (generic icon; grant Notifications"
@@ -95,7 +97,8 @@ cat <<'EOF'
 
 Done. Two one-time macOS permission grants to check:
   1. NOTIFICATIONS — if no banner just appeared: System Settings > Notifications
-     > ClaudeNotify (or terminal-notifier) > Allow, style "Banners" or "Alerts".
+     > allow Script Editor (osascript posts as it). For Claude-ICON banners,
+     verify by eye: claude-notify.sh --test-icon, then --trust-icon if it showed.
   2. AUTOMATION — the first real wake makes the runner drive Terminal.app; macOS
      will prompt "…wants to control Terminal". Approve it, or the typed
      "continue" falls back to a notification only.
