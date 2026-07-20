@@ -68,9 +68,16 @@ Hard-won details baked in (don't re-learn these):
   flag that provoked it, but it drives the same deprecated binary, so **all three**
   call sites are bounded: the banner and `--test-icon` reap their child after 10s
   (`icon_notify`), and the `-help` liveness probe gives up after 3s and falls back
-  to osascript (`bin_healthy`). Every kill is gated on an exact `(PID, lstart)`
+  to osascript (`bin_healthy`).
+  **The reap is verified, not assumed.** `kill(2)` reports that a signal was
+  *delivered*, not that the process died, and SIGTERM is catchable — an app
+  wedged in its runloop can ignore it. So `reap_child` escalates TERM → KILL,
+  polls for the process to actually disappear after each, and `wait`s to collect
+  the corpse. It reports success only when the child is provably gone; if one
+  ever survives SIGKILL, `--test-icon` says so loudly rather than claiming a
+  cleanup that did not happen. Every signal is gated on an exact `(PID, lstart)`
   identity match and fails closed — a recycled PID is never signaled. If
-  `--test-icon` reports that it had to reap the notifier, the delivery callback
+  `--test-icon` reports that it had to kill the notifier, the delivery callback
   never fired: the banner almost certainly went nowhere, so do **not**
   `--trust-icon` unless you actually saw it.
 
@@ -114,7 +121,7 @@ is idempotent.
 | `scripts/limit-wake-runner.sh` | LaunchAgent body: 60s heartbeat, transcript + rollout scans, fires due wakes (Terminal.app inject → Knave handoff → manual banner) |
 | `scripts/codex-limit-wake.sh` | Codex detector: structured rate_limits from rollout logs → same spool |
 | `scripts/claude-inject.sh` | types text into the Terminal tab on a given tty (with claude-owns-tty guard) |
-| `scripts/claude-notify.sh` | banner helper — osascript (always delivers) by default; Claude-icon path activates only after human verification (`--test-icon`, then `--trust-icon` once you saw it); every call into the notifier binary is time-bounded (10s banner reap, 3s liveness probe) so it can never hang or leak |
+| `scripts/claude-notify.sh` | banner helper — osascript (always delivers) by default; Claude-icon path activates only after human verification (`--test-icon`, then `--trust-icon` once you saw it); every call into the notifier binary is time-bounded (10s banner reap, 3s liveness probe) and the kill is escalated TERM → KILL and verified, so a hang can neither wedge the caller nor leak silently |
 | `scripts/ClaudeLimitWake` | argv[0] wrapper so the login item shows as "ClaudeLimitWake", not anonymous "bash" |
 | `scripts/session-tty-hook.sh` | SessionStart hook: records session-id → tty mapping |
 | `helpers/ClaudeNotify.app` | re-iconed terminal-notifier (the icon carrier) |

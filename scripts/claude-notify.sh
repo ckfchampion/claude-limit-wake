@@ -18,15 +18,49 @@ set -u
 BIN="$HOME/.claude/helpers/ClaudeNotify.app/Contents/MacOS/terminal-notifier"
 MARKER="$HOME/.claude/helpers/.claudenotify-verified"
 
+# Is PID $1 alive AND still the exact child we spawned? Identity is (PID,
+# lstart-at-spawn): this Mac wraps the PID space in ~25 min under churn, and
+# bash auto-reaps an early-exited child, so a bare PID means nothing. A
+# same-second recycle would need a full wrap in <1s. Also checks comm as
+# belt-and-braces. Any doubt returns 1 (not ours) so we never signal a stranger.
+child_is_ours() {  # $1=pid $2=lstart-at-spawn
+  ca_comm="$(/bin/ps -p "$1" -o comm= 2>/dev/null)"
+  [ -n "$ca_comm" ] || return 1
+  ca_born="$(/bin/ps -p "$1" -o lstart= 2>/dev/null)"
+  [ -n "$2" ] && [ "$ca_born" = "$2" ] || return 1
+  case "$ca_comm" in *terminal-notifier*) return 0 ;; *) return 1 ;; esac
+}
+
+# Terminate a child we own and PROVE it is gone. kill(2) reports that the signal
+# was DELIVERED, not that the process died, and SIGTERM is catchable — a notifier
+# wedged in its runloop can ignore it outright. So: escalate TERM -> KILL, poll
+# for actual disappearance after each, and wait() to collect the corpse. Returns
+# 0 only when the child is provably gone; 1 if it survived even SIGKILL, so the
+# caller can report a real leak instead of claiming a cleanup that never
+# happened. Every signal is gated on child_is_ours.
+reap_child() {  # $1=pid $2=lstart-at-spawn
+  for reap_sig in TERM KILL; do
+    child_is_ours "$1" "$2" || { wait "$1" 2>/dev/null; return 0; }
+    kill -"$reap_sig" "$1" 2>/dev/null
+    reap_i=0
+    while [ "$reap_i" -lt 10 ]; do
+      child_is_ours "$1" "$2" || { wait "$1" 2>/dev/null; return 0; }
+      sleep 0.2
+      reap_i=$((reap_i + 1))
+    done
+  done
+  child_is_ours "$1" "$2" || { wait "$1" 2>/dev/null; return 0; }
+  return 1
+}
+
 # Post through the icon notifier with a bounded lifetime. terminal-notifier 2.0
 # can wait forever on a delivery callback that never fires on macOS 26 — one
 # immortal PPID-1 process per banner; ~480 of them starved launchservicesd's
 # 512-thread pool and panicked this Mac (2026-07-16/17/19). We stay parent of
-# our own child and reap it after ~10s. bash auto-reaps an early-exited child
-# and this Mac wraps the PID space in ~25 min under churn, so the kill requires
-# an exact (PID, lstart) identity match — fail-closed, a recycled PID is never
-# signaled. Returns 0 if the notifier exited on its own, 1 if it had to be
-# reaped (which means the delivery callback never fired — see --test-icon).
+# our own child and reap it after ~10s.
+#   0 = notifier exited on its own (healthy)
+#   1 = hung, and we proved it is now gone
+#   2 = hung and survived SIGKILL — a real leak; NEVER report this as cleaned up
 # EVERY invocation of $BIN goes through here; a bare call is the bug this fixes.
 icon_notify() {  # $1=title $2=message
   "$BIN" -title "$1" -message "$2" >/dev/null 2>&1 &
@@ -34,16 +68,11 @@ icon_notify() {  # $1=title $2=message
   tn_born="$(/bin/ps -p "$tn_pid" -o lstart= 2>/dev/null)"
   tn_i=0
   while [ "$tn_i" -lt 20 ]; do
-    kill -0 "$tn_pid" 2>/dev/null || return 0
+    child_is_ours "$tn_pid" "$tn_born" || { wait "$tn_pid" 2>/dev/null; return 0; }
     sleep 0.5
     tn_i=$((tn_i + 1))
   done
-  tn_comm="$(/bin/ps -p "$tn_pid" -o comm= 2>/dev/null)"
-  tn_now="$(/bin/ps -p "$tn_pid" -o lstart= 2>/dev/null)"
-  case "$tn_comm" in
-    *terminal-notifier*)
-      [ -n "$tn_born" ] && [ "$tn_now" = "$tn_born" ] && kill "$tn_pid" 2>/dev/null ;;
-  esac
+  reap_child "$tn_pid" "$tn_born" || return 2
   return 1
 }
 
@@ -58,32 +87,33 @@ bin_healthy() {
   probe_born="$(/bin/ps -p "$probe_pid" -o lstart= 2>/dev/null)"
   probe_i=0
   while [ "$probe_i" -lt 6 ]; do
-    if ! kill -0 "$probe_pid" 2>/dev/null; then
+    if ! child_is_ours "$probe_pid" "$probe_born"; then
       wait "$probe_pid" 2>/dev/null
       return $?
     fi
     sleep 0.5
     probe_i=$((probe_i + 1))
   done
-  probe_comm="$(/bin/ps -p "$probe_pid" -o comm= 2>/dev/null)"
-  probe_now="$(/bin/ps -p "$probe_pid" -o lstart= 2>/dev/null)"
-  case "$probe_comm" in
-    *terminal-notifier*)
-      [ -n "$probe_born" ] && [ "$probe_now" = "$probe_born" ] && kill "$probe_pid" 2>/dev/null ;;
-  esac
+  # Wedged. Reap it (proving the exit), then report unhealthy either way — a
+  # binary that won't answer -help must not be trusted with a banner.
+  reap_child "$probe_pid" "$probe_born"
   return 1
 }
 
 case "${1:-}" in
   --test-icon)
     [ -x "$BIN" ] || { echo "no icon notifier at $BIN"; exit 1; }
-    if icon_notify "Claude" "Icon test — if you can SEE this banner (Claude icon), run: claude-notify.sh --trust-icon"; then
-      echo "posted. Saw the Claude-icon banner? Then run: $0 --trust-icon"
-    else
-      echo "posted, but the notifier hung and was reaped after 10s."
-      echo "That means its delivery callback never fired — the banner most"
-      echo "likely went nowhere. Do NOT run --trust-icon unless you SAW it."
-    fi
+    icon_notify "Claude" "Icon test — if you can SEE this banner (Claude icon), run: claude-notify.sh --trust-icon"
+    case $? in
+      0) echo "posted. Saw the Claude-icon banner? Then run: $0 --trust-icon" ;;
+      1) echo "posted, but the notifier hung and had to be killed — confirmed gone."
+         echo "A hang means its delivery callback never fired, so the banner most"
+         echo "likely went nowhere. Do NOT run --trust-icon unless you SAW it." ;;
+      *) echo "WARNING: the notifier hung and SURVIVED SIGKILL — it is still"
+         echo "running and has leaked a process. Do NOT run --trust-icon."
+         echo "Check for strays:  pgrep -fl ClaudeNotify.app"
+         echo "Leaked notifiers are what panicked this Mac (see README)." ;;
+    esac
     exit 0;;
   --trust-icon)
     touch "$MARKER"
