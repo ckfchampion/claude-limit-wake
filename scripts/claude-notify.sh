@@ -23,13 +23,35 @@ MARKER="$HOME/.claude/helpers/.claudenotify-verified"
 # bash auto-reaps an early-exited child, so a bare PID means nothing. A
 # same-second recycle would need a full wrap in <1s. Also checks comm as
 # belt-and-braces. Any doubt returns 1 (not ours) so we never signal a stranger.
+# Three-state, because "this is NOT ours" and "I could not tell" are different
+# facts and only the second is worth retrying. Collapsing them is what made a
+# single transient ps miss during a reap abandon a child we had positively
+# identified at spawn — bounded, honest, but a leak we did not have to take.
+#   0 = provably ours   1 = provably not ours (or gone)   2 = undetermined
+child_identity() {  # $1=pid $2=lstart-at-spawn
+  [ -n "$2" ] || return 2
+  ci_comm="$(/bin/ps -p "$1" -o comm= 2>/dev/null)"
+  ci_born="$(/bin/ps -p "$1" -o lstart= 2>/dev/null)"
+  if [ -z "$ci_comm" ] || [ -z "$ci_born" ]; then
+    pid_alive "$1" || return 1
+    return 2
+  fi
+  [ "$ci_born" = "$2" ] || return 1
+  case "$ci_comm" in *terminal-notifier*) return 0 ;; *) return 1 ;; esac
+}
+
+# Retrying wrapper — same contract as before (0 = safe to signal, 1 = not), but
+# an undetermined answer is retried rather than treated as a refusal. Persistent
+# failure still ends at 1: fail-closed, we never signal what we cannot prove.
 child_is_ours() {  # $1=pid $2=lstart-at-spawn
-  [ -n "$2" ] || return 1
-  ca_comm="$(/bin/ps -p "$1" -o comm= 2>/dev/null)"
-  [ -n "$ca_comm" ] || return 1
-  ca_born="$(/bin/ps -p "$1" -o lstart= 2>/dev/null)"
-  [ "$ca_born" = "$2" ] || return 1
-  case "$ca_comm" in *terminal-notifier*) return 0 ;; *) return 1 ;; esac
+  cio_i=0
+  while [ "$cio_i" -lt 3 ]; do
+    child_identity "$1" "$2"; cio_r=$?
+    [ "$cio_r" -eq 2 ] || return "$cio_r"
+    sleep 0.1
+    cio_i=$((cio_i + 1))
+  done
+  return 1
 }
 
 # LIVENESS, not identity — the two must never be conflated. child_is_ours()
@@ -74,6 +96,10 @@ capture_born() {  # $1=pid — echoes lstart, empty if truly unobtainable
 reap_child() {  # $1=pid $2=lstart-at-spawn
   pid_alive "$1" || { wait "$1" 2>/dev/null; return 0; }
   for reap_sig in TERM KILL; do
+    # Re-check liveness first: the child may have exited during the previous
+    # pass, and concluding "unproven" about a process that is already gone would
+    # report a leak that does not exist.
+    pid_alive "$1" || { wait "$1" 2>/dev/null; return 0; }
     # Cannot prove it is ours: refuse to signal a process we might not own, and
     # refuse to wait on one that may never exit. Unproven, and say so.
     child_is_ours "$1" "$2" || return 1

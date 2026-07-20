@@ -86,9 +86,13 @@ Hard-won details baked in (don't re-learn these):
   the caller into a bare `wait`, which blocks until the child exits: forever, for
   a hung notifier. So `wait` is now reached only once `kill -0` proves the PID is
   gone, and identity doubt resolves by neither signalling nor blocking — the run
-  is reported as *unproven*, never as clean. The identity capture itself retries
-  briefly, since losing it costs the ability to kill that child at all and the
-  likeliest cause (a `ps` starved by process-table pressure) is transient. If
+  is reported as *unproven*, never as clean. Identity is resolved three ways —
+  *ours*, *not ours*, *undetermined* — because only the last is worth retrying;
+  both the capture at spawn and every re-check during a reap retry a blind `ps`,
+  since the likeliest cause (a `ps` starved by process-table pressure) is
+  transient and losing the answer costs the ability to kill that child at all. A
+  definite "not ours" short-circuits immediately, and persistent blindness still
+  ends fail-closed. If
   `--test-icon` reports that it had to kill the notifier, the delivery callback
   never fired: the banner almost certainly went nowhere, so do **not**
   `--trust-icon` unless you actually saw it.
