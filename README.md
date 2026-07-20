@@ -60,6 +60,15 @@ Hard-won details baked in (don't re-learn these):
   activates after a human verifies it by eye: `claude-notify.sh --test-icon`,
   then `--trust-icon` if the banner appeared. Never trust a probe that can't
   see the screen.
+- **Every notifier child is watchdogged.** terminal-notifier 2.0 can wait
+  forever on a delivery callback that never fires on macOS 26 — one leaked,
+  immortal PPID-1 process per banner. On this machine a sibling script
+  accumulated ~480 of them, starved `launchservicesd`'s 512-thread pool, and
+  panicked the Mac three times (2026-07-16/17/19). The icon path here doesn't
+  use the `-sender` flag that provoked it, but it drives the same deprecated
+  binary, so it reaps its own child after 10s. The kill is gated on an exact
+  `(PID, lstart)` identity match and fails closed — a recycled PID is never
+  signaled.
 
 ## Install
 
@@ -101,7 +110,7 @@ is idempotent.
 | `scripts/limit-wake-runner.sh` | LaunchAgent body: 60s heartbeat, transcript + rollout scans, fires due wakes (Terminal.app inject → Knave handoff → manual banner) |
 | `scripts/codex-limit-wake.sh` | Codex detector: structured rate_limits from rollout logs → same spool |
 | `scripts/claude-inject.sh` | types text into the Terminal tab on a given tty (with claude-owns-tty guard) |
-| `scripts/claude-notify.sh` | banner helper — osascript (always delivers) by default; Claude-icon path activates only after human verification (`--test-icon`, then `--trust-icon` once you saw it) |
+| `scripts/claude-notify.sh` | banner helper — osascript (always delivers) by default; Claude-icon path activates only after human verification (`--test-icon`, then `--trust-icon` once you saw it); icon path reaps its own notifier child after 10s so it can never leak |
 | `scripts/ClaudeLimitWake` | argv[0] wrapper so the login item shows as "ClaudeLimitWake", not anonymous "bash" |
 | `scripts/session-tty-hook.sh` | SessionStart hook: records session-id → tty mapping |
 | `helpers/ClaudeNotify.app` | re-iconed terminal-notifier (the icon carrier) |

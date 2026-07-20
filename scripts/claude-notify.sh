@@ -32,7 +32,20 @@ esac
 
 TITLE="${1:-Claude}"; MSG="${2:-}"
 if [ -f "$MARKER" ] && [ -x "$BIN" ] && "$BIN" -help >/dev/null 2>&1; then
-  ( "$BIN" -title "$TITLE" -message "$MSG" >/dev/null 2>&1 & )
+  # Watchdog seatbelt (same as fleet-notify.sh): terminal-notifier variants can
+  # hang forever on macOS 26; reap our own child after 10s. bash auto-reaps an
+  # early-exited child, so the kill requires an exact (PID, lstart) identity
+  # match — fail-closed, never signals a recycled PID.
+  ( "$BIN" -title "$TITLE" -message "$MSG" >/dev/null 2>&1 &
+    TN_PID=$!
+    TN_BORN="$(/bin/ps -p "$TN_PID" -o lstart= 2>/dev/null)"
+    sleep 10
+    NOW_COMM="$(/bin/ps -p "$TN_PID" -o comm= 2>/dev/null)"
+    NOW_BORN="$(/bin/ps -p "$TN_PID" -o lstart= 2>/dev/null)"
+    case "$NOW_COMM" in
+      *terminal-notifier*)
+        [ -n "$TN_BORN" ] && [ "$NOW_BORN" = "$TN_BORN" ] && kill "$TN_PID" 2>/dev/null ;;
+    esac ) >/dev/null 2>&1 &
 else
   # argv-passing form: a payload containing quotes must not become an
   # AppleScript syntax error (the runner's own message quotes "continue").
