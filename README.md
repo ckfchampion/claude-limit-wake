@@ -76,7 +76,17 @@ Hard-won details baked in (don't re-learn these):
   the corpse. It reports success only when the child is provably gone; if one
   ever survives SIGKILL, `--test-icon` says so loudly rather than claiming a
   cleanup that did not happen. Every signal is gated on an exact `(PID, lstart)`
-  identity match and fails closed — a recycled PID is never signaled. If
+  identity match and fails closed — a recycled PID is never signaled.
+  **Liveness and identity are separate questions**, and conflating them is how an
+  earlier round of this fix reintroduced the very hang it removes. `kill -0`
+  answers "does this PID exist" and cannot fail ambiguously; the `ps` identity
+  check answers "may I signal this" and returns *no* on any doubt, including a
+  `ps` that simply failed — which is likeliest under exactly the process-table
+  pressure being guarded against. Treating that "no" as "the child exited" sent
+  the caller into a bare `wait`, which blocks until the child exits: forever, for
+  a hung notifier. So `wait` is now reached only once `kill -0` proves the PID is
+  gone, and identity doubt resolves by neither signalling nor blocking — the run
+  is reported as *unproven*, never as clean. If
   `--test-icon` reports that it had to kill the notifier, the delivery callback
   never fired: the banner almost certainly went nowhere, so do **not**
   `--trust-icon` unless you actually saw it.
