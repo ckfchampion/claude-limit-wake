@@ -18,11 +18,72 @@ set -u
 BIN="$HOME/.claude/helpers/ClaudeNotify.app/Contents/MacOS/terminal-notifier"
 MARKER="$HOME/.claude/helpers/.claudenotify-verified"
 
+# Post through the icon notifier with a bounded lifetime. terminal-notifier 2.0
+# can wait forever on a delivery callback that never fires on macOS 26 — one
+# immortal PPID-1 process per banner; ~480 of them starved launchservicesd's
+# 512-thread pool and panicked this Mac (2026-07-16/17/19). We stay parent of
+# our own child and reap it after ~10s. bash auto-reaps an early-exited child
+# and this Mac wraps the PID space in ~25 min under churn, so the kill requires
+# an exact (PID, lstart) identity match — fail-closed, a recycled PID is never
+# signaled. Returns 0 if the notifier exited on its own, 1 if it had to be
+# reaped (which means the delivery callback never fired — see --test-icon).
+# EVERY invocation of $BIN goes through here; a bare call is the bug this fixes.
+icon_notify() {  # $1=title $2=message
+  "$BIN" -title "$1" -message "$2" >/dev/null 2>&1 &
+  tn_pid=$!
+  tn_born="$(/bin/ps -p "$tn_pid" -o lstart= 2>/dev/null)"
+  tn_i=0
+  while [ "$tn_i" -lt 20 ]; do
+    kill -0 "$tn_pid" 2>/dev/null || return 0
+    sleep 0.5
+    tn_i=$((tn_i + 1))
+  done
+  tn_comm="$(/bin/ps -p "$tn_pid" -o comm= 2>/dev/null)"
+  tn_now="$(/bin/ps -p "$tn_pid" -o lstart= 2>/dev/null)"
+  case "$tn_comm" in
+    *terminal-notifier*)
+      [ -n "$tn_born" ] && [ "$tn_now" = "$tn_born" ] && kill "$tn_pid" 2>/dev/null ;;
+  esac
+  return 1
+}
+
+# Bounded liveness probe. The old unguarded `"$BIN" -help` was the second way
+# this script could hang forever: claude-notify.sh runs from Claude Code hooks,
+# so a wedged probe wedges the hook. A binary that won't answer -help in 3s is
+# not usable — say so and let the caller fall back to osascript (fail-safe:
+# any doubt routes to the path that provably delivers).
+bin_healthy() {
+  "$BIN" -help >/dev/null 2>&1 &
+  probe_pid=$!
+  probe_born="$(/bin/ps -p "$probe_pid" -o lstart= 2>/dev/null)"
+  probe_i=0
+  while [ "$probe_i" -lt 6 ]; do
+    if ! kill -0 "$probe_pid" 2>/dev/null; then
+      wait "$probe_pid" 2>/dev/null
+      return $?
+    fi
+    sleep 0.5
+    probe_i=$((probe_i + 1))
+  done
+  probe_comm="$(/bin/ps -p "$probe_pid" -o comm= 2>/dev/null)"
+  probe_now="$(/bin/ps -p "$probe_pid" -o lstart= 2>/dev/null)"
+  case "$probe_comm" in
+    *terminal-notifier*)
+      [ -n "$probe_born" ] && [ "$probe_now" = "$probe_born" ] && kill "$probe_pid" 2>/dev/null ;;
+  esac
+  return 1
+}
+
 case "${1:-}" in
   --test-icon)
     [ -x "$BIN" ] || { echo "no icon notifier at $BIN"; exit 1; }
-    "$BIN" -title "Claude" -message "Icon test — if you can SEE this banner (Claude icon), run: claude-notify.sh --trust-icon"
-    echo "posted. Saw the Claude-icon banner? Then run: $0 --trust-icon"
+    if icon_notify "Claude" "Icon test — if you can SEE this banner (Claude icon), run: claude-notify.sh --trust-icon"; then
+      echo "posted. Saw the Claude-icon banner? Then run: $0 --trust-icon"
+    else
+      echo "posted, but the notifier hung and was reaped after 10s."
+      echo "That means its delivery callback never fired — the banner most"
+      echo "likely went nowhere. Do NOT run --trust-icon unless you SAW it."
+    fi
     exit 0;;
   --trust-icon)
     touch "$MARKER"
@@ -31,21 +92,10 @@ case "${1:-}" in
 esac
 
 TITLE="${1:-Claude}"; MSG="${2:-}"
-if [ -f "$MARKER" ] && [ -x "$BIN" ] && "$BIN" -help >/dev/null 2>&1; then
-  # Watchdog seatbelt (same as fleet-notify.sh): terminal-notifier variants can
-  # hang forever on macOS 26; reap our own child after 10s. bash auto-reaps an
-  # early-exited child, so the kill requires an exact (PID, lstart) identity
-  # match — fail-closed, never signals a recycled PID.
-  ( "$BIN" -title "$TITLE" -message "$MSG" >/dev/null 2>&1 &
-    TN_PID=$!
-    TN_BORN="$(/bin/ps -p "$TN_PID" -o lstart= 2>/dev/null)"
-    sleep 10
-    NOW_COMM="$(/bin/ps -p "$TN_PID" -o comm= 2>/dev/null)"
-    NOW_BORN="$(/bin/ps -p "$TN_PID" -o lstart= 2>/dev/null)"
-    case "$NOW_COMM" in
-      *terminal-notifier*)
-        [ -n "$TN_BORN" ] && [ "$NOW_BORN" = "$TN_BORN" ] && kill "$TN_PID" 2>/dev/null ;;
-    esac ) >/dev/null 2>&1 &
+if [ -f "$MARKER" ] && [ -x "$BIN" ] && bin_healthy; then
+  # Backgrounded so a hook never blocks on the banner; icon_notify bounds the
+  # child's lifetime inside that subshell.
+  ( icon_notify "$TITLE" "$MSG" ) >/dev/null 2>&1 &
 else
   # argv-passing form: a payload containing quotes must not become an
   # AppleScript syntax error (the runner's own message quotes "continue").
