@@ -43,6 +43,25 @@ child_is_ours() {  # $1=pid $2=lstart-at-spawn
 # RULE: wait() is safe ONLY once pid_alive() says the PID is gone.
 pid_alive() { kill -0 "$1" 2>/dev/null; }
 
+# Capture the (PID, lstart) identity of a just-spawned child, retrying briefly.
+# A blind capture is not fatal — everything downstream fails safe — but it costs
+# us the ability to ever kill that child, so it degrades a bounded reap into a
+# reported leak. The failure mode we most need this under (ps starved by the
+# process-table pressure this script guards against) is exactly the transient
+# kind a retry beats, and the case that matters (a hung notifier) stays alive
+# to be found. Gives up the moment the child is genuinely gone.
+capture_born() {  # $1=pid — echoes lstart, empty if truly unobtainable
+  cb_i=0
+  while [ "$cb_i" -lt 3 ]; do
+    cb_born="$(/bin/ps -p "$1" -o lstart= 2>/dev/null)"
+    [ -n "$cb_born" ] && { printf '%s' "$cb_born"; return 0; }
+    pid_alive "$1" || return 1
+    sleep 0.1
+    cb_i=$((cb_i + 1))
+  done
+  return 1
+}
+
 # Terminate a child we own and PROVE it is gone. kill(2) reports that the signal
 # was DELIVERED, not that the process died, and SIGTERM is catchable — a notifier
 # wedged in its runloop can ignore it outright. So: escalate TERM -> KILL, poll
@@ -84,7 +103,7 @@ reap_child() {  # $1=pid $2=lstart-at-spawn
 icon_notify() {  # $1=title $2=message
   "$BIN" -title "$1" -message "$2" >/dev/null 2>&1 &
   tn_pid=$!
-  tn_born="$(/bin/ps -p "$tn_pid" -o lstart= 2>/dev/null)"
+  tn_born="$(capture_born "$tn_pid")"
   tn_i=0
   while [ "$tn_i" -lt 20 ]; do
     pid_alive "$tn_pid" || { wait "$tn_pid" 2>/dev/null; return 0; }
@@ -103,7 +122,7 @@ icon_notify() {  # $1=title $2=message
 bin_healthy() {
   "$BIN" -help >/dev/null 2>&1 &
   probe_pid=$!
-  probe_born="$(/bin/ps -p "$probe_pid" -o lstart= 2>/dev/null)"
+  probe_born="$(capture_born "$probe_pid")"
   probe_i=0
   while [ "$probe_i" -lt 6 ]; do
     if ! pid_alive "$probe_pid"; then

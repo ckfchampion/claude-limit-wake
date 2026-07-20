@@ -86,7 +86,9 @@ Hard-won details baked in (don't re-learn these):
   the caller into a bare `wait`, which blocks until the child exits: forever, for
   a hung notifier. So `wait` is now reached only once `kill -0` proves the PID is
   gone, and identity doubt resolves by neither signalling nor blocking — the run
-  is reported as *unproven*, never as clean. If
+  is reported as *unproven*, never as clean. The identity capture itself retries
+  briefly, since losing it costs the ability to kill that child at all and the
+  likeliest cause (a `ps` starved by process-table pressure) is transient. If
   `--test-icon` reports that it had to kill the notifier, the delivery callback
   never fired: the banner almost certainly went nowhere, so do **not**
   `--trust-icon` unless you actually saw it.
