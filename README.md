@@ -5,8 +5,9 @@ Auto-resume Claude Code sessions after a rate limit. When a session dies with
 locally (no API needed), then **types `continue` into the exact Terminal tab
 the session runs in** — so the session resumes live, on its own.
 
-Built on Charlotte's Mac mini, July 2026. Extracted from `~/.claude/scripts/`
-for install on other machines.
+macOS only. Everything runs on your machine: no network calls, no telemetry,
+no account. It reads your own Claude Code transcripts (`~/.claude/projects`)
+to spot the CLI's rate-limit entries, and nothing else.
 
 ## How it works
 
@@ -24,9 +25,9 @@ limit-wake-runner.sh (LaunchAgent, every 60s) sees a due wake
         ▼
 claude-inject.sh types "continue" into the session's Terminal.app tab
 (tty recorded per-session by the SessionStart hook). Not a Terminal.app
-tab but claude still owns the tty (a Knave-embedded terminal) → the runner
-drops a fire-request in ~/.knave/limit-wake-fire/ and the Knave app types
-"continue" into its own PTY, deleting the file as the ack. Nothing
+tab but claude still owns the tty (a terminal embedded in another app) → the
+runner drops a fire-request in ~/.knave/limit-wake-fire/ and a host app may
+type "continue" into its own PTY, deleting the file as the ack. Nothing
 consumed it / tab gone → banner telling you to resume by hand. 15-min
 cooldown stops re-fire loops.
 ```
@@ -100,13 +101,26 @@ Hard-won details baked in (don't re-learn these):
 ## Install
 
 ```bash
-git clone git@github.com:ckfchampion/claude-limit-wake.git
+git clone https://github.com/ckfchampion/claude-limit-wake.git
 cd claude-limit-wake && ./install.sh
 ```
 
 Requires: macOS, Claude Code, `jq` (`brew install jq`), sessions running in
 **Terminal.app** (iTerm/VS Code sessions still get the "limits reset — resume
 manually" banner, just not the typed `continue`).
+
+### What the installer touches
+
+| Path | What |
+|---|---|
+| `~/.claude/scripts/` | the six scripts below (copied) |
+| `~/.claude/helpers/ClaudeNotify.app` | the icon-carrier notifier (copied, ad-hoc signed) |
+| `~/Library/LaunchAgents/com.claudelimitwake.runner.plist` | the 60s runner (loaded immediately) |
+| `~/.claude/settings.json` | four hooks merged in (`Stop`, `SubagentStop`, `StopFailure`, `SessionStart`); a `settings.json.bak-<timestamp>` copy is written first |
+
+Runtime state lives in `~/.claude/limit-wakes/` (queued wakes, cooldowns),
+`~/.claude/session-ttys/` (session → tty map) and
+`~/.claude/limit-wake-agent.log`.
 
 Two one-time permission grants on a fresh machine (the installer reminds you):
 
@@ -116,25 +130,36 @@ Two one-time permission grants on a fresh machine (the installer reminds you):
 2. **Automation** — approve the "wants to control Terminal" prompt on first fire.
 
 Re-running `install.sh` updates scripts in place; the settings.json hook merge
-is idempotent.
+is idempotent. Installs from before 1.0 (LaunchAgent label
+`com.champion.claudelimitwake`) are unloaded and replaced automatically.
 
 ## Scope (honest)
 
 - **Claude Code** sessions (scans `~/.claude/projects` transcripts): full
-  auto-resume — typed `continue` in Terminal.app tabs and (with the Knave
-  desktop app ≥ the limit-wake build) in Knave-embedded terminals.
+  auto-resume — typed `continue` in Terminal.app tabs. Sessions in a
+  terminal that is not Terminal.app fall back to a banner, unless a host app
+  consumes the optional fire-request handoff (see below).
 - **Codex** sessions (scans `~/.codex/sessions` rollout logs): banner at
   reset time only — no typed continue yet (needs a Codex session→tty
   source; phase 2).
 - Daily/5h-window limits only; weekly-window limits deliberately never arm
   (a days-out wake is worse than none).
 
+### Optional: embedded-terminal handoff
+
+If a `claude` process owns the tty but no Terminal.app tab has it (a terminal
+embedded in another app), the runner drops a request file in
+`~/.knave/limit-wake-fire/<tty>.json` and waits 6s for a host app to type the
+text and delete the file. Nothing consumes it → the request is withdrawn and
+you get the "resume manually" banner. If you don't run such a host app this
+path is a harmless no-op.
+
 ## Files
 
 | File | Role |
 |---|---|
 | `scripts/limit-wake.sh` | detector: parses the 429 entry, queues the wake, posts the "wake queued" banner |
-| `scripts/limit-wake-runner.sh` | LaunchAgent body: 60s heartbeat, transcript + rollout scans, fires due wakes (Terminal.app inject → Knave handoff → manual banner) |
+| `scripts/limit-wake-runner.sh` | LaunchAgent body: 60s heartbeat, transcript + rollout scans, fires due wakes (Terminal.app inject → handoff → manual banner) |
 | `scripts/codex-limit-wake.sh` | Codex detector: structured rate_limits from rollout logs → same spool |
 | `scripts/claude-inject.sh` | types text into the Terminal tab on a given tty (with claude-owns-tty guard) |
 | `scripts/claude-notify.sh` | banner helper — osascript (always delivers) by default; Claude-icon path activates only after human verification (`--test-icon`, then `--trust-icon` once you saw it); every call into the notifier binary is time-bounded (10s banner reap, 3s liveness probe) and the kill is escalated TERM → KILL and verified, so a hang can neither wedge the caller nor leak silently |
@@ -142,11 +167,28 @@ is idempotent.
 | `scripts/session-tty-hook.sh` | SessionStart hook: records session-id → tty mapping |
 | `helpers/ClaudeNotify.app` | re-iconed terminal-notifier (the icon carrier) |
 | `launchagent/…plist.template` | the 60s LaunchAgent, `__HOME__` substituted at install |
+| `tests/run.sh` | offline test suite (detectors, runner fire paths, inject guard) — `./tests/run.sh` |
+
+## Tests
+
+```bash
+./tests/run.sh
+```
+
+Runs against a throwaway `$HOME` with stubbed notifier/injector, so no
+banners are posted and no Terminal is driven. Same suite runs in CI on
+macOS (`.github/workflows/test.yml`).
 
 ## Uninstall
 
 ```bash
-launchctl bootout "gui/$(id -u)/com.champion.claudelimitwake"
-rm ~/Library/LaunchAgents/com.champion.claudelimitwake.plist
-# then remove the four hook entries from ~/.claude/settings.json if desired
+launchctl bootout "gui/$(id -u)/com.claudelimitwake.runner"
+rm ~/Library/LaunchAgents/com.claudelimitwake.runner.plist
+rm -rf ~/.claude/limit-wakes ~/.claude/session-ttys ~/.claude/helpers/ClaudeNotify.app
+# then remove the four hook entries from ~/.claude/settings.json (or restore the .bak)
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE). Bundled third-party material (terminal-notifier,
+the Claude icon) is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

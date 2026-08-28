@@ -1,12 +1,12 @@
 #!/bin/bash
-# limit-wake (scheduler half): run every 60s by the com.champion.claudelimitwake
+# limit-wake (scheduler half): run every 60s by the com.claudelimitwake.runner
 # LaunchAgent (a GUI-session agent — cron can't control Terminal via AppleScript).
 #   1. heartbeat — stamps $SPOOL/.last-run so "is the agent running?" is answerable.
 #   2. scan — feeds freshly-written main transcripts through limit-wake.sh.
 #      A limit-aborted turn fires NO Stop/SubagentStop hook (proven 2026-07-11),
 #      so this scan is the reliable catch; the hooks are the fast path.
 #   3. fire — for each due wake, TYPE "continue" into the exact Terminal tab the
-#      session runs in (session->tty map from the SessionStart hook), so Charlotte
+#      session runs in (session->tty map from the SessionStart hook), so you
 #      watches it resume live. Falls back to a notification if the tab is gone.
 #      A per-session cooldown stops a self-triggered re-limit from re-firing.
 
@@ -78,15 +78,15 @@ for FILE in "$SPOOL"/*.json; do
   else
     RC=$?
     # exit 4 = a claude owns the tty but no Terminal.app tab has it — likely a
-    # Knave-embedded terminal. Hand off: drop a fire-request file; Knave's
-    # watcher types the text and DELETES the file as its ack (2s poll → 6s wait).
+    # terminal embedded in another app. Hand off: drop a fire-request file; a host
+    # app may type the text and DELETE the file as its ack (2s poll → 6s wait).
     FIRED=""
     if [ "$RC" = "4" ]; then
       FIREDIR="$HOME/.knave/limit-wake-fire"
       REQ="$FIREDIR/${TTY#/dev/}.json"
       # file-gone is the ack, so it only counts if creation provably succeeded —
       # a failed write here must fall through to the manual banner, never read
-      # as "Knave consumed it".
+      # as "the host app consumed it".
       if mkdir -p "$FIREDIR" 2>/dev/null \
          && /usr/bin/jq -n --arg s "$SESSION" --arg t "$TTY" --arg x "continue" --argjson ts "$NOW" \
               '{session:$s, tty:$t, text:$x, ts:$ts}' > "$REQ" 2>/dev/null \
@@ -100,7 +100,7 @@ for FILE in "$SPOOL"/*.json; do
     fi
     if [ -n "$FIRED" ]; then
       echo "$((NOW + COOLDOWN_SECS))" > "$CD"
-      notify "Claude limit-wake" "Typed \"continue\" into Knave session $SHORT8 ($TTY)"
+      notify "Claude limit-wake" "Typed \"continue\" into embedded session $SHORT8 ($TTY)"
     else
       # tab gone / not mapped / handoff unconsumed — resume by hand
       notify "Claude limit-wake — resume manually" "Limits reset for session $SHORT8, but its tab wasn't found. Go press continue."

@@ -20,7 +20,7 @@ if [ "${INJECT_SKIP_GUARD:-0}" != "1" ]; then
   # matching let `vim /tmp/claude` through), and its stat ($2) must carry the
   # foreground marker `+` and not be stopped (`T`) — a Ctrl-Z'd claude with
   # vim in front must never receive typed keys (both Codex findings,
-  # 2026-07-16; same fixes live in Knave's limitwake guard).
+  # 2026-07-16).
   ps -o tty=,stat=,command= 2>/dev/null \
     | awk -v t="$SHORT" '$1==t && $2 ~ /\+/ && $2 !~ /T/ && $3 ~ /(^|\/)claude$/ {f=1} END{exit !f}' || exit 3
 fi

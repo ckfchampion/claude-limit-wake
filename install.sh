@@ -7,9 +7,11 @@
 #                                 claude-inject.sh, claude-notify.sh,
 #                                 session-tty-hook.sh
 #   ~/.claude/helpers/            ClaudeNotify.app (banner with the Claude icon)
-#   ~/Library/LaunchAgents/       com.champion.claudelimitwake.plist (60s runner)
+#   ~/Library/LaunchAgents/       com.claudelimitwake.runner.plist (60s runner)
 #   ~/.claude/settings.json       Stop/SubagentStop/StopFailure -> limit-wake.sh
-#                                 SessionStart -> session-tty-hook.sh (hook merge)
+#                                 SessionStart -> session-tty-hook.sh (hook merge;
+#                                 a timestamped backup is written first)
+# Nothing leaves this machine: no network calls, no telemetry.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -20,13 +22,24 @@ SCRIPTS="$HOME/.claude/scripts"
 HELPERS="$HOME/.claude/helpers"
 AGENTS="$HOME/Library/LaunchAgents"
 SETTINGS="$HOME/.claude/settings.json"
-LABEL="com.champion.claudelimitwake"
+LABEL="com.claudelimitwake.runner"
+LEGACY_LABEL="com.champion.claudelimitwake"   # pre-1.0 installs; unloaded + removed below
 
 echo "== scripts -> $SCRIPTS"
 mkdir -p "$SCRIPTS" "$HELPERS" "$AGENTS"
 install -m 0755 scripts/* "$SCRIPTS/"   # includes the ClaudeLimitWake wrapper (login-item display name)
 
 echo "== ClaudeNotify.app -> $HELPERS"
+# Notification Center permission is keyed on the bundle id. If the installed
+# app carries a different id than the one shipping now, the human-verified
+# icon trust no longer holds — drop the marker so banners fall back to
+# osascript until someone re-verifies by eye (--test-icon / --trust-icon).
+OLD_ID="$(defaults read "$HELPERS/ClaudeNotify.app/Contents/Info.plist" CFBundleIdentifier 2>/dev/null || true)"
+NEW_ID="$(defaults read "$PWD/helpers/ClaudeNotify.app/Contents/Info.plist" CFBundleIdentifier 2>/dev/null || true)"
+if [ -f "$HELPERS/.claudenotify-verified" ] && [ "$OLD_ID" != "$NEW_ID" ]; then
+  rm -f "$HELPERS/.claudenotify-verified"
+  echo "   notifier bundle id changed ($OLD_ID -> $NEW_ID): icon trust reset, banners use osascript until re-verified"
+fi
 rm -rf "$HELPERS/ClaudeNotify.app"
 cp -R helpers/ClaudeNotify.app "$HELPERS/"
 xattr -dr com.apple.quarantine "$HELPERS/ClaudeNotify.app" 2>/dev/null || true
@@ -62,12 +75,17 @@ fi
 echo "== LaunchAgent -> $AGENTS/$LABEL.plist"
 sed "s|__HOME__|$HOME|g" "launchagent/$LABEL.plist.template" > "$AGENTS/$LABEL.plist"
 plutil -lint "$AGENTS/$LABEL.plist" >/dev/null
+launchctl bootout "gui/$(id -u)/$LEGACY_LABEL" 2>/dev/null || true
+rm -f "$AGENTS/$LEGACY_LABEL.plist"
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$AGENTS/$LABEL.plist"
 launchctl print "gui/$(id -u)/$LABEL" >/dev/null && echo "   runner loaded (fires every 60s)"
 
 echo "== hooks -> $SETTINGS"
 [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
+jq empty "$SETTINGS" || { echo "ERROR: $SETTINGS is not valid JSON — fix it before installing hooks"; exit 1; }
+BACKUP="$SETTINGS.bak-$(date +%Y%m%d%H%M%S)"
+cp "$SETTINGS" "$BACKUP" && echo "   backup: $BACKUP"
 # ensure_hook <event> <command> <needle> — append the hook to the event unless a
 # hook whose command contains <needle> is already registered for it.
 ensure_hook() {
@@ -107,6 +125,7 @@ Notes:
   - Injection targets Terminal.app tabs (tty-mapped at SessionStart). Sessions
     in iTerm/VS Code terminals get the fallback notification instead of a typed
     "continue".
-  - This watches Claude Code transcripts (~/.claude/projects). Codex sessions
-    are NOT covered by this system.
+  - Claude Code sessions (~/.claude/projects) get the full auto-resume.
+    Codex sessions (~/.codex/sessions) get a banner at reset time only.
+  - Everything runs locally. Nothing is sent anywhere.
 EOF

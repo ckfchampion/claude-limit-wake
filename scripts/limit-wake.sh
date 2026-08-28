@@ -70,7 +70,7 @@ mkdir -p "$SPOOL"
 FILE="$SPOOL/${SESSION_ID}.json"
 # Loop-guard: if we auto-continued this session within the cooldown window, do
 # NOT re-arm — an injected "continue" that itself re-hit the limit must not spin
-# (the re-fire chaos of 2026-07-12). Charlotte sees the re-limit in her live tab.
+# (a re-fire loop seen 2026-07-12). The re-limit is visible in the live tab.
 CD="$SPOOL/.cooldown-${SESSION_ID}"
 if [ -f "$CD" ] && [ "$NOW" -lt "$(/bin/cat "$CD" 2>/dev/null || echo 0)" ]; then exit 0; fi
 # Same target already queued for this session -> quiet no-op.

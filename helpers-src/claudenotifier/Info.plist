@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.champion.claudenotify</string>
+    <string>com.claudelimitwake.notify</string>
     <key>CFBundleName</key>
     <string>ClaudeNotify</string>
     <key>CFBundleDisplayName</key>
