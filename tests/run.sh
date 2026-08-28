@@ -73,10 +73,15 @@ check "legacy id + trusted marker -> marker removed" "[ ! -f '$IH/.marker' ]"
 plutil -replace CFBundleIdentifier -string com.claudelimitwake.notify "$IH/ClaudeNotify.app/Contents/Info.plist"
 touch "$IH/.marker"; reset_icon_trust_if_bundle_changed "$IH/ClaudeNotify.app" "$ROOT/helpers/ClaudeNotify.app" "$IH/.marker" >/dev/null
 check "same id -> marker kept" "[ -f '$IH/.marker' ]"
-rm -rf "$IH/ClaudeNotify.app"; reset_icon_trust_if_bundle_changed "$IH/ClaudeNotify.app" "$ROOT/helpers/ClaudeNotify.app" "$IH/.marker" >/dev/null
+# installed app readable (current id), shipping app unreadable: isolates the
+# fail-closed branch — old == what ships today, only the new id is unknown
+touch "$IH/.marker"; reset_icon_trust_if_bundle_changed "$IH/ClaudeNotify.app" "$TMP/nonexistent.app" "$IH/.marker" >/dev/null
+check "readable installed id + unreadable shipping id -> marker dropped (fail closed)" "[ ! -f '$IH/.marker' ]"
+rm -rf "$IH/ClaudeNotify.app"
+touch "$IH/.marker"; reset_icon_trust_if_bundle_changed "$IH/ClaudeNotify.app" "$ROOT/helpers/ClaudeNotify.app" "$IH/.marker" >/dev/null
 check "no previous install + marker -> marker removed (id unknown)" "[ ! -f '$IH/.marker' ]"
 touch "$IH/.marker"; reset_icon_trust_if_bundle_changed "$IH/ClaudeNotify.app" "$TMP/nonexistent.app" "$IH/.marker" >/dev/null
-check "unreadable shipping id -> marker dropped (fail closed)" "[ ! -f '$IH/.marker' ]"
+check "both ids unreadable -> marker dropped (equal-but-empty must not count as proven)" "[ ! -f '$IH/.marker' ]"
 
 echo "== detector: limit-wake.sh"
 reset_state; T="$HOME/.claude/projects/proj/a.jsonl"; SID="sess-aaaa1111-2222"
