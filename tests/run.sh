@@ -62,6 +62,22 @@ for f in "$ROOT"/scripts/*.sh "$ROOT"/install.sh "$ROOT"/tests/run.sh; do
 done
 check "plist template lints" "sed 's|__HOME__|$HOME|g' '$ROOT'/launchagent/*.plist.template > '$TMP/agent.plist' && plutil -lint '$TMP/agent.plist' >/dev/null"
 
+echo "== installer: icon-trust reset on bundle-id migration"
+# pull the two helper functions out of install.sh (it runs launchctl when executed whole)
+eval "$(sed -n '/^bundle_id()/,/^}/p; /^reset_icon_trust_if_bundle_changed()/,/^}/p' "$ROOT/install.sh")"
+IH="$TMP/installed"; mkdir -p "$IH"; cp -R "$ROOT/helpers/ClaudeNotify.app" "$IH/"
+check "bundle_id reads the shipping app" "[ \"\$(bundle_id '$ROOT/helpers/ClaudeNotify.app')\" = com.claudelimitwake.notify ]"
+plutil -replace CFBundleIdentifier -string com.champion.claudenotify "$IH/ClaudeNotify.app/Contents/Info.plist"
+touch "$IH/.marker"; reset_icon_trust_if_bundle_changed "$IH/ClaudeNotify.app" "$ROOT/helpers/ClaudeNotify.app" "$IH/.marker" >/dev/null
+check "legacy id + trusted marker -> marker removed" "[ ! -f '$IH/.marker' ]"
+plutil -replace CFBundleIdentifier -string com.claudelimitwake.notify "$IH/ClaudeNotify.app/Contents/Info.plist"
+touch "$IH/.marker"; reset_icon_trust_if_bundle_changed "$IH/ClaudeNotify.app" "$ROOT/helpers/ClaudeNotify.app" "$IH/.marker" >/dev/null
+check "same id -> marker kept" "[ -f '$IH/.marker' ]"
+rm -rf "$IH/ClaudeNotify.app"; reset_icon_trust_if_bundle_changed "$IH/ClaudeNotify.app" "$ROOT/helpers/ClaudeNotify.app" "$IH/.marker" >/dev/null
+check "no previous install + marker -> marker removed (id unknown)" "[ ! -f '$IH/.marker' ]"
+touch "$IH/.marker"; reset_icon_trust_if_bundle_changed "$IH/ClaudeNotify.app" "$TMP/nonexistent.app" "$IH/.marker" >/dev/null
+check "unreadable shipping id -> marker left alone, not silently dropped" "[ -f '$IH/.marker' ]"
+
 echo "== detector: limit-wake.sh"
 reset_state; T="$HOME/.claude/projects/proj/a.jsonl"; SID="sess-aaaa1111-2222"
 entry_429 "$SID" "You've hit your usage limit · resets 3pm" 5 > "$T"

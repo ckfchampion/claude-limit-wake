@@ -34,12 +34,21 @@ echo "== ClaudeNotify.app -> $HELPERS"
 # app carries a different id than the one shipping now, the human-verified
 # icon trust no longer holds — drop the marker so banners fall back to
 # osascript until someone re-verifies by eye (--test-icon / --trust-icon).
-OLD_ID="$(defaults read "$HELPERS/ClaudeNotify.app/Contents/Info.plist" CFBundleIdentifier 2>/dev/null || true)"
-NEW_ID="$(defaults read "$PWD/helpers/ClaudeNotify.app/Contents/Info.plist" CFBundleIdentifier 2>/dev/null || true)"
-if [ -f "$HELPERS/.claudenotify-verified" ] && [ "$OLD_ID" != "$NEW_ID" ]; then
-  rm -f "$HELPERS/.claudenotify-verified"
-  echo "   notifier bundle id changed ($OLD_ID -> $NEW_ID): icon trust reset, banners use osascript until re-verified"
-fi
+# plutil reads the plist file directly; `defaults read` goes through cfprefsd
+# and fails (empty) in sandboxed shells, which made this check a silent no-op.
+bundle_id() {  # <app bundle> -> CFBundleIdentifier or empty
+  /usr/bin/plutil -extract CFBundleIdentifier raw -o - "$1/Contents/Info.plist" 2>/dev/null || true
+}
+reset_icon_trust_if_bundle_changed() {  # <installed app> <shipping app> <marker>
+  local old new; old="$(bundle_id "$1")"; new="$(bundle_id "$2")"
+  [ -f "$3" ] || return 0
+  [ -n "$new" ] || { echo "   WARNING: cannot read shipping bundle id — leaving icon trust as is"; return 0; }
+  if [ "$old" != "$new" ]; then
+    rm -f "$3"
+    echo "   notifier bundle id changed (${old:-none} -> $new): icon trust reset, banners use osascript until re-verified"
+  fi
+}
+reset_icon_trust_if_bundle_changed "$HELPERS/ClaudeNotify.app" "$PWD/helpers/ClaudeNotify.app" "$HELPERS/.claudenotify-verified"
 rm -rf "$HELPERS/ClaudeNotify.app"
 cp -R helpers/ClaudeNotify.app "$HELPERS/"
 xattr -dr com.apple.quarantine "$HELPERS/ClaudeNotify.app" 2>/dev/null || true
