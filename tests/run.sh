@@ -76,7 +76,7 @@ check "same id -> marker kept" "[ -f '$IH/.marker' ]"
 rm -rf "$IH/ClaudeNotify.app"; reset_icon_trust_if_bundle_changed "$IH/ClaudeNotify.app" "$ROOT/helpers/ClaudeNotify.app" "$IH/.marker" >/dev/null
 check "no previous install + marker -> marker removed (id unknown)" "[ ! -f '$IH/.marker' ]"
 touch "$IH/.marker"; reset_icon_trust_if_bundle_changed "$IH/ClaudeNotify.app" "$TMP/nonexistent.app" "$IH/.marker" >/dev/null
-check "unreadable shipping id -> marker left alone, not silently dropped" "[ -f '$IH/.marker' ]"
+check "unreadable shipping id -> marker dropped (fail closed)" "[ ! -f '$IH/.marker' ]"
 
 echo "== detector: limit-wake.sh"
 reset_state; T="$HOME/.claude/projects/proj/a.jsonl"; SID="sess-aaaa1111-2222"

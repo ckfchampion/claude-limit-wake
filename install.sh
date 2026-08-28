@@ -42,10 +42,12 @@ bundle_id() {  # <app bundle> -> CFBundleIdentifier or empty
 reset_icon_trust_if_bundle_changed() {  # <installed app> <shipping app> <marker>
   local old new; old="$(bundle_id "$1")"; new="$(bundle_id "$2")"
   [ -f "$3" ] || return 0
-  [ -n "$new" ] || { echo "   WARNING: cannot read shipping bundle id — leaving icon trust as is"; return 0; }
-  if [ "$old" != "$new" ]; then
+  # Fail closed: trust survives only a PROVEN identical id. Unknown/unreadable
+  # ids drop the marker too — the cost is one re-verification; the alternative
+  # is routing banners through an unverified app that may never show them.
+  if [ -z "$new" ] || [ "$old" != "$new" ]; then
     rm -f "$3"
-    echo "   notifier bundle id changed (${old:-none} -> $new): icon trust reset, banners use osascript until re-verified"
+    echo "   notifier bundle id ${new:+changed (${old:-none} -> $new)}${new:-unreadable}: icon trust reset, banners use osascript until re-verified"
   fi
 }
 reset_icon_trust_if_bundle_changed "$HELPERS/ClaudeNotify.app" "$PWD/helpers/ClaudeNotify.app" "$HELPERS/.claudenotify-verified"
