@@ -113,9 +113,15 @@ ensure_hook() {
      "$SETTINGS" > "$tmp" && mv "$tmp" "$SETTINGS"
   echo "   $event: hook added"
 }
+# The literal ~ is intended: it is stored in settings.json and expanded by
+# Claude Code at hook time, so the file stays valid if $HOME ever changes.
+# shellcheck disable=SC2088
 ensure_hook Stop         '~/.claude/scripts/limit-wake.sh'       'limit-wake.sh'
+# shellcheck disable=SC2088
 ensure_hook SubagentStop '~/.claude/scripts/limit-wake.sh'       'limit-wake.sh'
+# shellcheck disable=SC2088
 ensure_hook StopFailure  '~/.claude/scripts/limit-wake.sh'       'limit-wake.sh'
+# shellcheck disable=SC2088
 ensure_hook SessionStart '~/.claude/scripts/session-tty-hook.sh' 'session-tty-hook.sh'
 jq empty "$SETTINGS" && echo "   settings.json valid"
 
