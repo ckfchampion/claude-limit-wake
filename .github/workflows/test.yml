@@ -5,5 +5,6 @@ jobs:
     runs-on: macos-latest   # the scripts use BSD date/ps and plutil
     steps:
       - uses: actions/checkout@v4
+      - run: brew install shellcheck
       - run: shellcheck -S error scripts/*.sh install.sh tests/run.sh
       - run: ./tests/run.sh
